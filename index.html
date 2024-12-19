@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI Real-time Audio Demo</title>
+    <style>
+        :root {
+            --primary-color: #10a37f;
+            --secondary-color: #1a7f64;
+            --background-color: #f7f7f8;
+            --text-color: #353740;
+            --error-color: #ef4146;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--secondary-color);
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .transcript-container {
+            background-color: var(--background-color);
+            padding: 1.5rem;
+            border-radius: 5px;
+            min-height: 200px;
+            margin-bottom: 1rem;
+        }
+
+        .transcript {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .status {
+            text-align: center;
+            color: var(--primary-color);
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+
+        .error {
+            color: var(--error-color);
+            text-align: center;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            border-radius: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OpenAI Real-time Audio Demo</h1>
+        
+        <div class="controls">
+            <button id="startButton">Start</button>
+            <button id="stopButton" disabled>Stop</button>
+        </div>
+
+        <div class="transcript-container">
+            <div id="transcript" class="transcript"></div>
+        </div>
+
+        <div id="status" class="status">Ready to start</div>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const transcriptDiv = document.getElementById('transcript');
+        const statusDiv = document.getElementById('status');
+        const errorDiv = document.getElementById('error');
+
+        let peerConnection = null;
+        let audioStream = null;
+        let dataChannel = null;
+
+        // Message handling functions
+        function handleTranscript(message) {
+            if (message.response?.output?.[0]?.content?.[0]?.transcript) {
+                transcriptDiv.textContent += message.response.output[0].content[0].transcript + ' ';
+            }
+        }
+
+        async function handleWeatherFunction(output) {
+            try {
+                const args = JSON.parse(output.arguments);
+                const location = args.location;
+                
+                const response = await fetch(`http://localhost:8888/weather/${encodeURIComponent(location)}`);
+                const data = await response.json();
+                
+                // Send function output
+                sendFunctionOutput(output.call_id, {
+                    temperature: data.temperature,
+                    unit: data.unit,
+                    location: location
+                });
+                
+                // Request new response
+                sendResponseCreate();
+            } catch (error) {
+                showError('Error handling weather function: ' + error.message);
+            }
+        }
+
+        function handleFunctionCall(output) {
+            if (output?.type === "function_call" && 
+                output?.name === "get_weather" && 
+                output?.call_id) {
+                console.log('Function call found:', output);
+                handleWeatherFunction(output);
+            }
+        }
+
+        function handleMessage(event) {
+            try {
+                const message = JSON.parse(event.data);
+                console.log('Received message:', message);
+                
+                switch (message.type) {
+                    case "response.done":
+                        handleTranscript(message);
+                        const output = message.response?.output?.[0];
+                        if (output) handleFunctionCall(output);
+                        break;
+                    default:
+                        console.log('Unhandled message type:', message.type);
+                }
+            } catch (error) {
+                showError('Error processing message: ' + error.message);
+            }
+        }
+
+        // WebRTC setup functions
+        async function setupAudio() {
+            const audioEl = document.createElement("audio");
+            audioEl.autoplay = true;
+            peerConnection.ontrack = e => audioEl.srcObject = e.streams[0];
+            
+            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            peerConnection.addTrack(audioStream.getTracks()[0]);
+        }
+
+        function setupDataChannel() {
+            dataChannel = peerConnection.createDataChannel("oai-events");
+            dataChannel.onopen = onDataChannelOpen;
+            dataChannel.addEventListener("message", handleMessage);
+        }
+
+        // Message sending functions
+        function sendSessionUpdate() {
+            const sessionUpdateEvent = {
+                "event_id": "event_" + Date.now(),
+                "type": "session.update",
+                "session": {
+                    "tools": [{
+                        "type": "function",
+                        "name": "get_weather",
+                        "description": "Get the current weather. Works only for Earth",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": { "type": "string" }
+                            },
+                            "required": ["location"]
+                        }
+                    }],
+                    "tool_choice": "auto"
+                }
+            };
+            sendMessage(sessionUpdateEvent);
+        }
+
+        function sendInitialMessage() {
+            const conversationMessage = {
+                "event_id": "event_" + Date.now(),
+                "type": "conversation.item.create",
+                "previous_item_id": null,
+                "item": {
+                    "id": "msg_" + Date.now(),
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": "MY NAME IS GEERT"
+                    }]
+                }
+            };
+            sendMessage(conversationMessage);
+        }
+
+        function sendFunctionOutput(callId, data) {
+            const responseMessage = {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": callId,
+                    "output": JSON.stringify(data)
+                }
+            };
+            sendMessage(responseMessage);
+        }
+
+        function sendResponseCreate() {
+            sendMessage({ "type": "response.create" });
+        }
+
+        function sendMessage(message) {
+            if (dataChannel?.readyState === "open") {
+                dataChannel.send(JSON.stringify(message));
+                console.log('Sent message:', message);
+            }
+        }
+
+        function onDataChannelOpen() {
+            sendSessionUpdate();
+            sendInitialMessage();
+        }
+
+        // Main control functions
+        async function init() {
+            startButton.disabled = true;
+            
+            try {
+                updateStatus('Initializing...');
+                
+                const tokenResponse = await fetch("http://localhost:8888/session");
+                const data = await tokenResponse.json();
+                const EPHEMERAL_KEY = data.client_secret.value;
+
+                peerConnection = new RTCPeerConnection();
+                await setupAudio();
+                setupDataChannel();
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const baseUrl = "https://api.openai.com/v1/realtime";
+                const model = "gpt-4o-realtime-preview-2024-12-17";
+                const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+                    method: "POST",
+                    body: offer.sdp,
+                    headers: {
+                        Authorization: `Bearer ${EPHEMERAL_KEY}`,
+                        "Content-Type": "application/sdp"
+                    },
+                });
+
+                const answer = {
+                    type: "answer",
+                    sdp: await sdpResponse.text(),
+                };
+                await peerConnection.setRemoteDescription(answer);
+
+                updateStatus('Connected');
+                stopButton.disabled = false;
+                hideError();
+
+            } catch (error) {
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                showError('Error: ' + error.message);
+                console.error('Initialization error:', error);
+                updateStatus('Failed to connect');
+            }
+        }
+
+        function stopRecording() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+            if (dataChannel) {
+                dataChannel.close();
+                dataChannel = null;
+            }
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            updateStatus('Ready to start');
+        }
+
+        // UI helper functions
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
+
+        function showError(message) {
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = message;
+        }
+
+        function hideError() {
+            errorDiv.style.display = 'none';
+        }
+
+        // Event listeners
+        startButton.addEventListener('click', init);
+        stopButton.addEventListener('click', stopRecording);
+        document.addEventListener('DOMContentLoaded', () => updateStatus('Ready to start'));
+    </script>
+</body>
+</html>
