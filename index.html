@@ -110,7 +110,6 @@
         // Message sending functions
         function sendSessionUpdate() {
             const sessionUpdateEvent = {
-                "event_id": "event_" + Date.now(),
                 "type": "session.update",
                 "session": {
                     "tools": [{
@@ -133,7 +132,6 @@
 
         function sendInitialMessage() {
             const conversationMessage = {
-                "event_id": "event_" + Date.now(),
                 "type": "conversation.item.create",
                 "previous_item_id": null,
                 "item": {
@@ -142,7 +140,7 @@
                     "role": "user",
                     "content": [{
                         "type": "input_text",
-                        "text": "MY NAME IS GEERT"
+                        "text": "My name is Geert and I live in Antwerp, Belgium."
                     }]
                 }
             };
