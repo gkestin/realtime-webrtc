@@ -184,6 +184,9 @@ button:disabled {
 }
 
 .saved-conversation-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
     padding: 10px;
     margin: 5px 0;
     background-color: #f5f5f5;
@@ -200,4 +203,26 @@ button:disabled {
     color: #666;
     font-size: 0.9em;
     margin-top: 5px;
+}
+
+.conversation-content {
+    flex-grow: 1;
+    cursor: pointer;
+}
+
+.delete-conversation {
+    float: right;
+    color: white;
+    padding: 5px 10px;
+    cursor: pointer;
+    border: none;
+    background-color: rgba(203, 64, 66, 0.15);
+    border-radius: 4px;
+    font-size: 1.2em;
+    transition: all 0.2s;
+}
+
+.delete-conversation:hover {
+    transform: scale(1.1);
+    background-color: rgba(203, 64, 66, 0.3);
 } 
