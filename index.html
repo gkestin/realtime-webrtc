@@ -23,6 +23,16 @@
         <div class="bottom-controls">
             <button id="saveButton" class="secondary-button" disabled>Save Conversation</button>
             <button id="viewSavedButton" class="secondary-button">View Saved</button>
+            <select id="languageSelect" class="language-select">
+                <option value="ja-JP">Japanese</option>
+                <option value="">Auto Detect</option>
+                <option value="en-US">English</option>
+                <option value="es-ES">Spanish</option>
+                <option value="fr-FR">French</option>
+                <option value="de-DE">German</option>
+                <option value="ko-KR">Korean</option>
+                <option value="zh-CN">Chinese (Simplified)</option>
+            </select>
         </div>
 
         <div id="error" class="error"></div>
@@ -38,7 +48,7 @@
     </div>
 
     <script>
-        // this section is variables for the UI elements
+        // UI elements
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const transcriptDiv = document.getElementById('transcript');
@@ -49,6 +59,7 @@
         const modal = document.getElementById('savedConversationsModal');
         const closeBtn = document.querySelector('.close');
         const savedConversationsList = document.getElementById('savedConversationsList');
+        const languageSelect = document.getElementById('languageSelect');
 
         let peerConnection = null;
         let audioStream = null;
@@ -59,45 +70,73 @@
             timestamp: null
         };
 
-        // Function to display the transcribed user audio.
+        // --- NEW LOGIC FOR ORDERING ---
+        // userCount is how many user transcripts are "available" to pair with an AI response
+        let userCount = 0;
+        // responseQueue holds AI responses that arrived before any user transcript
+        const responseQueue = [];
+
+        // Display user transcript in the UI
         function handleUserTranscript(transcribedText) {
             const p = document.createElement('p');
             p.innerHTML = `<strong>USER:</strong> ${transcribedText}`;
             transcriptDiv.appendChild(p);
-            
+
             currentConversation.messages.push({
                 role: 'user',
                 text: transcribedText
             });
-        }
 
-        // Message handling functions
-        function handleTranscript(message) {
-            if (message.response?.output?.[0]?.content?.[0]?.transcript) {
-                const text = message.response.output[0].content[0].transcript;
-                const p = document.createElement('p');
-                p.setAttribute('data-ai', 'true');
-                p.innerHTML = `<strong>AI:</strong> `;
-                transcriptDiv.appendChild(p);
-                
-                currentConversation.messages.push({
-                    role: 'ai',
-                    text: text
-                });
-                
-                // Animate text character by character
-                let index = 0;
-                const interval = setInterval(() => {
-                    if (index < text.length) {
-                        p.innerHTML = `<strong>AI:</strong> ${text.substring(0, index + 1)}`;
-                        index++;
-                    } else {
-                        clearInterval(interval);
-                    }
-                }, 30);
+            // Increase userCount because we have a user transcript available
+            userCount++;
+
+            // If there are any AI responses waiting, display them if userCount > 0
+            while (responseQueue.length > 0 && userCount > 0) {
+                const nextAI = responseQueue.shift();
+                displayAITranscript(nextAI);
+                userCount--;
             }
         }
 
+        // Actually show the AI transcript in the UI
+        function displayAITranscript(message) {
+            if (!message.response?.output?.[0]?.content?.[0]?.transcript) return;
+            const text = message.response.output[0].content[0].transcript;
+            const p = document.createElement('p');
+            p.setAttribute('data-ai', 'true');
+            p.innerHTML = `<strong>AI:</strong> `;
+            transcriptDiv.appendChild(p);
+
+            currentConversation.messages.push({
+                role: 'ai',
+                text: text
+            });
+
+            // Animate text character by character
+            let index = 0;
+            const interval = setInterval(() => {
+                if (index < text.length) {
+                    p.innerHTML = `<strong>AI:</strong> ${text.substring(0, index + 1)}`;
+                    index++;
+                } else {
+                    clearInterval(interval);
+                }
+            }, 30);
+        }
+
+        // Animate AI messages (decides if we can show them right away or queue them)
+        function handleTranscript(message) {
+            // If userCount is at least 1, we can display this AI response immediately
+            if (userCount > 0) {
+                displayAITranscript(message);
+                userCount--; 
+            } else {
+                // Otherwise, queue it until we receive a user transcript
+                responseQueue.push(message);
+            }
+        }
+
+        // Handle the weather function
         async function handleWeatherFunction(output) {
             try {
                 const args = JSON.parse(output.arguments);
@@ -120,6 +159,7 @@
             }
         }
 
+        // Check if there's a function call and handle it
         function handleFunctionCall(output) {
             if (output?.type === "function_call" && 
                 output?.name === "get_weather" && 
@@ -129,14 +169,15 @@
             }
         }
 
+        // Process incoming messages
         function handleMessage(event) {
             try {
                 const message = JSON.parse(event.data);
                 console.log('Received message:', message);
-                
+
                 switch (message.type) {
-                    // New case to display user transcript
-                    case "user.transcript":
+                    // This event is triggered when user audio is transcribed on the server
+                    case "conversation.item.input_audio_transcription.completed":
                         handleUserTranscript(message.transcript);
                         break;
 
@@ -154,45 +195,66 @@
             }
         }
 
-        // WebRTC setup functions
+        // WebRTC audio setup
         async function setupAudio() {
             const audioEl = document.createElement("audio");
             audioEl.autoplay = true;
+            
             peerConnection.ontrack = e => audioEl.srcObject = e.streams[0];
             
-            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+            
             peerConnection.addTrack(audioStream.getTracks()[0]);
         }
 
+        // Data channel setup
         function setupDataChannel() {
             dataChannel = peerConnection.createDataChannel("oai-events");
             dataChannel.onopen = onDataChannelOpen;
             dataChannel.addEventListener("message", handleMessage);
         }
 
-        // Message sending functions
+        // Session update to configure transcription and other settings
         function sendSessionUpdate() {
             const sessionUpdateEvent = {
-                "type": "session.update",
-                "session": {
-                    "tools": [{
-                        "type": "function",
-                        "name": "get_weather",
-                        "description": "Get the current weather. Works only for Earth",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "location": { "type": "string" }
+                type: "session.update",
+                session: {
+                    voice: "alloy",
+                    instructions: "Call provided tools if appropriate for the user's input.",
+                    input_audio_format: "pcm16",
+                    input_audio_transcription: {
+                        model: "whisper-1"
+                    },
+                    turn_detection: {
+                        threshold: 0.4,
+                        silence_duration_ms: 600,
+                        type: "server_vad"
+                    },
+                    tools: [{
+                        type: "function",
+                        name: "get_weather",
+                        description: "Get the current weather. Works only for Earth",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                location: { type: "string" }
                             },
-                            "required": ["location"]
+                            required: ["location"]
                         }
                     }],
-                    "tool_choice": "auto"
+                    tool_choice: "auto"
                 }
             };
             sendMessage(sessionUpdateEvent);
         }
 
+        // Send initial user message to define chatbot behavior
         function sendInitialMessage() {
             const conversationMessage = {
                 "type": "conversation.item.create",
@@ -210,6 +272,7 @@
             sendMessage(conversationMessage);
         }
 
+        // Send function output
         function sendFunctionOutput(callId, data) {
             const responseMessage = {
                 "type": "conversation.item.create",
@@ -222,10 +285,12 @@
             sendMessage(responseMessage);
         }
 
+        // Request the AI model to generate a new response
         function sendResponseCreate() {
             sendMessage({ "type": "response.create" });
         }
 
+        // Generic send message utility
         function sendMessage(message) {
             if (dataChannel?.readyState === "open") {
                 dataChannel.send(JSON.stringify(message));
@@ -233,18 +298,22 @@
             }
         }
 
+        // Called when data channel is open
         function onDataChannelOpen() {
+            // Configure session for server-side transcription, etc.
             sendSessionUpdate();
+            // Send an initial user message
             sendInitialMessage();
         }
 
-        // Main control functions
+        // Initialize connection
         async function init() {
             startButton.disabled = true;
             
             try {
                 updateStatus('Initializing...');
-                
+
+                // The normal WebRTC flow
                 const tokenResponse = await fetch("http://localhost:8888/session");
                 const data = await tokenResponse.json();
                 const EPHEMERAL_KEY = data.client_secret.value;
@@ -288,6 +357,7 @@
             saveButton.disabled = false;
         }
 
+        // Stop everything
         function stopRecording() {
             if (peerConnection) {
                 peerConnection.close();
@@ -301,21 +371,20 @@
                 dataChannel.close();
                 dataChannel = null;
             }
+
             startButton.disabled = false;
             stopButton.disabled = true;
             updateStatus('Ready to start');
         }
 
-        // UI helper functions
+        // UI helpers
         function updateStatus(message) {
             statusDiv.textContent = message;
         }
-
         function showError(message) {
             errorDiv.style.display = 'block';
             errorDiv.textContent = message;
         }
-
         function hideError() {
             errorDiv.style.display = 'none';
         }
@@ -323,7 +392,9 @@
         // Event listeners
         startButton.addEventListener('click', init);
         stopButton.addEventListener('click', stopRecording);
+
         document.addEventListener('DOMContentLoaded', () => updateStatus('Ready to start'));
+
         saveButton.addEventListener('click', saveCurrentConversation);
         viewSavedButton.addEventListener('click', () => {
             loadSavedConversations();
@@ -338,7 +409,12 @@
             }
         });
 
-        // Add these functions for conversation management
+        // When language is changed, we do nothing special now since local speech is removed
+        languageSelect.addEventListener('change', () => {
+            // No-op for server transcription
+        });
+
+        // Conversation management
         function saveCurrentConversation() {
             if (currentConversation.messages.length === 0) return;
             
@@ -352,13 +428,12 @@
         }
 
         function deleteConversation(index, event) {
-            event.stopPropagation(); // Prevent triggering the conversation loading
-            
+            event.stopPropagation(); 
             if (confirm('Are you sure you want to delete this conversation?')) {
                 const conversations = JSON.parse(localStorage.getItem('conversations') || '[]');
                 conversations.splice(conversations.length - 1 - index, 1);
                 localStorage.setItem('conversations', JSON.stringify(conversations));
-                loadSavedConversations(); // Reload the list
+                loadSavedConversations();
             }
         }
 
@@ -372,13 +447,12 @@
                 const date = new Date(conv.timestamp).toLocaleString();
                 const preview = conv.messages[0]?.text || 'Empty conversation';
                 
-                div.innerHTML = `
-                    <div class="conversation-content">
+                div.innerHTML = 
+                    `<div class="conversation-content">
                         <strong>${date}</strong>
                         <div class="conversation-preview">${preview.substring(0, 100)}...</div>
                     </div>
-                    <button class="delete-conversation" title="Delete conversation">🗑️</button>
-                `;
+                    <button class="delete-conversation" title="Delete conversation">🗑️</button>`;
                 
                 // Add click handler for loading conversation
                 div.querySelector('.conversation-content').onclick = () => loadConversation(conversations.length - 1 - index);

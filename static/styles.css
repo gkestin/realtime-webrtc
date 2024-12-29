@@ -299,9 +299,37 @@ button:disabled {
   .secondary-button {
     width: 100%;
   }
+
+  .language-select {
+    width: 100%;
+    margin: 0.5rem 0;
+    padding: 0.8rem;
+  }
 } 
 
 #savedConversationsList {
     max-height: 60vh;
     overflow-y: auto;
+} 
+
+.language-select {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    background-color: transparent;
+    color: var(--text-color);
+    font-size: 0.9rem;
+    width: auto;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.language-select:hover {
+    border-color: var(--primary-color);
+}
+
+.language-select option {
+    background-color: white;
+    color: var(--text-color);
 } 
