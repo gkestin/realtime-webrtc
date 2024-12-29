@@ -5,6 +5,8 @@ from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
 import random
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -24,6 +26,9 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in environment variables")
+
+# Mount the static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class SessionResponse(BaseModel):
     session_id: str
@@ -77,6 +82,11 @@ async def get_weather(location: str):
             
     except Exception as e:
         return {"error": f"Could not get weather data: {str(e)}"}
+
+# Serve index.html at the root path
+@app.get("/")
+async def read_root():
+    return FileResponse("index.html")
 
 if __name__ == "__main__":
     import uvicorn

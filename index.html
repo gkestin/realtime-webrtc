@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenAI Real-time Audio Demo</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <div class="container">
@@ -13,6 +13,8 @@
         <div class="controls" style="text-align: center; margin-bottom: 2rem;">
             <button id="startButton">Start</button>
             <button id="stopButton" disabled>Stop</button>
+            <button id="saveButton" disabled>Save Conversation</button>
+            <button id="viewSavedButton">View Saved</button>
         </div>
 
         <div class="transcript-container">
@@ -23,21 +25,72 @@
         <div id="error" class="error"></div>
     </div>
 
+    <!-- Add this modal structure -->
+    <div id="savedConversationsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Saved Conversations</h2>
+            <div id="savedConversationsList"></div>
+        </div>
+    </div>
+
     <script>
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const transcriptDiv = document.getElementById('transcript');
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
+        const saveButton = document.getElementById('saveButton');
+        const viewSavedButton = document.getElementById('viewSavedButton');
+        const modal = document.getElementById('savedConversationsModal');
+        const closeBtn = document.querySelector('.close');
+        const savedConversationsList = document.getElementById('savedConversationsList');
 
         let peerConnection = null;
         let audioStream = null;
         let dataChannel = null;
 
+        let currentConversation = {
+            messages: [],
+            timestamp: null
+        };
+
+        // Function to display the transcribed user audio.
+        function handleUserTranscript(transcribedText) {
+            const p = document.createElement('p');
+            p.innerHTML = `<strong>USER:</strong> ${transcribedText}`;
+            transcriptDiv.appendChild(p);
+            
+            currentConversation.messages.push({
+                role: 'user',
+                text: transcribedText
+            });
+        }
+
         // Message handling functions
         function handleTranscript(message) {
             if (message.response?.output?.[0]?.content?.[0]?.transcript) {
-                transcriptDiv.textContent += message.response.output[0].content[0].transcript + ' ';
+                const text = message.response.output[0].content[0].transcript;
+                const p = document.createElement('p');
+                p.setAttribute('data-ai', 'true');
+                p.innerHTML = `<strong>AI:</strong> `;
+                transcriptDiv.appendChild(p);
+                
+                currentConversation.messages.push({
+                    role: 'ai',
+                    text: text
+                });
+                
+                // Animate text character by character
+                let index = 0;
+                const interval = setInterval(() => {
+                    if (index < text.length) {
+                        p.innerHTML = `<strong>AI:</strong> ${text.substring(0, index + 1)}`;
+                        index++;
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 30);
             }
         }
 
@@ -78,11 +131,17 @@
                 console.log('Received message:', message);
                 
                 switch (message.type) {
+                    // New case to display user transcript
+                    case "user.transcript":
+                        handleUserTranscript(message.transcript);
+                        break;
+
                     case "response.done":
                         handleTranscript(message);
                         const output = message.response?.output?.[0];
                         if (output) handleFunctionCall(output);
                         break;
+
                     default:
                         console.log('Unhandled message type:', message.type);
                 }
@@ -140,7 +199,7 @@
                     "role": "user",
                     "content": [{
                         "type": "input_text",
-                        "text": "My name is Geert and I live in Antwerp, Belgium."
+                        "text": "日本語でゆっくり、そしてフレンドリーなトーンで話してください。"
                     }]
                 }
             };
@@ -221,6 +280,8 @@
                 console.error('Initialization error:', error);
                 updateStatus('Failed to connect');
             }
+
+            saveButton.disabled = false;
         }
 
         function stopRecording() {
@@ -239,6 +300,7 @@
             startButton.disabled = false;
             stopButton.disabled = true;
             updateStatus('Ready to start');
+            saveButton.disabled = true;
         }
 
         // UI helper functions
@@ -259,6 +321,74 @@
         startButton.addEventListener('click', init);
         stopButton.addEventListener('click', stopRecording);
         document.addEventListener('DOMContentLoaded', () => updateStatus('Ready to start'));
+        saveButton.addEventListener('click', saveCurrentConversation);
+        viewSavedButton.addEventListener('click', () => {
+            loadSavedConversations();
+            modal.style.display = 'block';
+        });
+        closeBtn.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        window.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // Add these functions for conversation management
+        function saveCurrentConversation() {
+            if (currentConversation.messages.length === 0) return;
+            
+            const conversations = JSON.parse(localStorage.getItem('conversations') || '[]');
+            currentConversation.timestamp = new Date().toISOString();
+            conversations.push(currentConversation);
+            localStorage.setItem('conversations', JSON.stringify(conversations));
+            
+            showError('Conversation saved successfully!');
+            setTimeout(hideError, 2000);
+        }
+
+        function loadSavedConversations() {
+            const conversations = JSON.parse(localStorage.getItem('conversations') || '[]');
+            savedConversationsList.innerHTML = '';
+            
+            conversations.reverse().forEach((conv, index) => {
+                const div = document.createElement('div');
+                div.className = 'saved-conversation-item';
+                const date = new Date(conv.timestamp).toLocaleString();
+                const preview = conv.messages[0]?.text || 'Empty conversation';
+                
+                div.innerHTML = `
+                    <strong>${date}</strong>
+                    <div class="conversation-preview">${preview.substring(0, 100)}...</div>
+                `;
+                
+                div.onclick = () => loadConversation(conversations.length - 1 - index);
+                savedConversationsList.appendChild(div);
+            });
+        }
+
+        function loadConversation(index) {
+            const conversations = JSON.parse(localStorage.getItem('conversations') || '[]');
+            const conversation = conversations[index];
+            
+            transcriptDiv.innerHTML = '';
+            conversation.messages.forEach(msg => {
+                const p = document.createElement('p');
+                if (msg.role === 'ai') {
+                    p.setAttribute('data-ai', 'true');
+                }
+                p.innerHTML = `<strong>${msg.role.toUpperCase()}:</strong> ${msg.text}`;
+                transcriptDiv.appendChild(p);
+            });
+            
+            currentConversation = {
+                messages: [...conversation.messages],
+                timestamp: conversation.timestamp
+            };
+            
+            modal.style.display = 'none';
+        }
     </script>
 </body>
 </html>
