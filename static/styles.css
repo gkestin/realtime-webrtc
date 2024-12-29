@@ -98,11 +98,11 @@ button:disabled {
 }
 
 .status {
-    text-align: center;
+    display: inline-block;
+    margin: 0 1rem;
     color: var(--primary-color);
     font-size: 1rem;
     font-weight: 600;
-    margin-top: 1rem;
 }
 
 .error {
@@ -225,4 +225,23 @@ button:disabled {
 .delete-conversation:hover {
     transform: scale(1.1);
     background-color: rgba(203, 64, 66, 0.3);
+}
+
+.bottom-controls {
+    text-align: center;
+    margin-top: 1rem;
+}
+
+.secondary-button {
+    font-size: 0.9rem;
+    padding: 0.6rem 1.2rem;
+}
+
+/* Update status style to fit between buttons */
+.status {
+    display: inline-block;
+    margin: 0 1rem;
+    color: var(--primary-color);
+    font-size: 1rem;
+    font-weight: 600;
 } 

@@ -12,16 +12,19 @@
         
         <div class="controls" style="text-align: center; margin-bottom: 2rem;">
             <button id="startButton">Start</button>
+            <div id="status" class="status">Ready to start</div>
             <button id="stopButton" disabled>Stop</button>
-            <button id="saveButton" disabled>Save Conversation</button>
-            <button id="viewSavedButton">View Saved</button>
         </div>
 
         <div class="transcript-container">
             <div id="transcript" class="transcript"></div>
         </div>
 
-        <div id="status" class="status">Ready to start</div>
+        <div class="bottom-controls">
+            <button id="saveButton" class="secondary-button" disabled>Save Conversation</button>
+            <button id="viewSavedButton" class="secondary-button">View Saved</button>
+        </div>
+
         <div id="error" class="error"></div>
     </div>
 
@@ -301,7 +304,6 @@
             startButton.disabled = false;
             stopButton.disabled = true;
             updateStatus('Ready to start');
-            saveButton.disabled = true;
         }
 
         // UI helper functions
