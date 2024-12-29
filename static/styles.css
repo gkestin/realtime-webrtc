@@ -140,8 +140,21 @@ button:disabled {
 
 /* Add styles for the AI responses */
 .transcript p strong {
-    color: var(--accent-color);
     font-weight: 600;
+}
+
+/* Style for AI messages */
+.transcript p[data-ai="true"] strong {
+    color: var(--accent-color);
+}
+
+/* Style for user messages */
+.transcript p:not([data-ai="true"]) {
+    color: #666666;  /* Dark grey for user transcript text */
+}
+
+.transcript p:not([data-ai="true"]) strong {
+    color: var(--primary-color);
 }
 
 .transcript p[data-ai="true"] {

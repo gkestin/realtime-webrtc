@@ -23,6 +23,7 @@
         <div class="bottom-controls">
             <button id="saveButton" class="secondary-button" disabled>Save Conversation</button>
             <button id="viewSavedButton" class="secondary-button">View Saved</button>
+            <!-- Commented out unused language selector
             <select id="languageSelect" class="language-select">
                 <option value="ja-JP">Japanese</option>
                 <option value="">Auto Detect</option>
@@ -33,6 +34,7 @@
                 <option value="ko-KR">Korean</option>
                 <option value="zh-CN">Chinese (Simplified)</option>
             </select>
+            -->
         </div>
 
         <div id="error" class="error"></div>
@@ -59,7 +61,8 @@
         const modal = document.getElementById('savedConversationsModal');
         const closeBtn = document.querySelector('.close');
         const savedConversationsList = document.getElementById('savedConversationsList');
-        const languageSelect = document.getElementById('languageSelect');
+        // Commented out unused language selector
+        // const languageSelect = document.getElementById('languageSelect');
 
         let peerConnection = null;
         let audioStream = null;
@@ -79,7 +82,7 @@
         // Display user transcript in the UI
         function handleUserTranscript(transcribedText) {
             const p = document.createElement('p');
-            p.innerHTML = `<strong>USER:</strong> ${transcribedText}`;
+            p.innerHTML = `<strong>You:</strong> ${transcribedText}`;
             transcriptDiv.appendChild(p);
 
             currentConversation.messages.push({
@@ -409,10 +412,12 @@
             }
         });
 
-        // When language is changed, we do nothing special now since local speech is removed
+        // Commented out unused event listener
+        /* 
         languageSelect.addEventListener('change', () => {
             // No-op for server transcription
         });
+        */
 
         // Conversation management
         function saveCurrentConversation() {
